@@ -20,6 +20,7 @@ import org.bukkit.plugin.Plugin;
 
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * An anvil gui, used for gathering a user's input
@@ -51,6 +52,10 @@ public class AnvilGUI {
 	 */
 	private ItemStack insert;
 	/**
+	 * Label for the item in the right input slot
+	 */
+	private String rightItemLabel;
+	/**
 	 * A state that decides where the anvil GUI is able to be closed by the user
 	 */
 	private final boolean preventClose;
@@ -59,10 +64,18 @@ public class AnvilGUI {
 	 */
 	private final Consumer<Player> closeListener;
 	/**
+	 * An {@link Consumer} that is called when the item in the right input slot is clicked
+	 */
+	private final Function<Player, Boolean> rightItemListener;
+	/**
 	 * An {@link BiFunction} that is called when the {@link Slot#OUTPUT} slot has been clicked
 	 */
 	private final BiFunction<Player, String, Response> completeFunction;
 
+	/**
+	 * The ItemStack that is in the {@link Slot#INPUT_RIGHT} slot.
+	 */
+	private ItemStack rightItem;
 	/**
 	 * The container id of the inventory, used for NMS methods
 	 */
@@ -100,7 +113,7 @@ public class AnvilGUI {
 			} else {
 				return Response.close();
 			}
-		});
+		}, null, null);
 	}
 
 	/**
@@ -114,6 +127,8 @@ public class AnvilGUI {
 	 * @param preventClose Whether to prevent the inventory from closing
 	 * @param closeListener A {@link Consumer} when the inventory closes
 	 * @param completeFunction A {@link BiFunction} that is called when the player clicks the {@link Slot#OUTPUT} slot
+	 * @param rightItemLabel Label for the item in the right input slot, might be null if rightITemListener is null
+	 * @param rightItemListener A {@Link Function} that is called when the item in the right input slot is called. Returns if the UI should be closed.
 	 */
 	private AnvilGUI(
 			Plugin plugin,
@@ -123,7 +138,9 @@ public class AnvilGUI {
 			ItemStack insert,
 			boolean preventClose,
 			Consumer<Player> closeListener,
-			BiFunction<Player, String, Response> completeFunction
+			BiFunction<Player, String, Response> completeFunction,
+			String rightItemLabel,
+			Function<Player, Boolean> rightItemListener
 	) {
 		this.plugin = plugin;
 		this.player = player;
@@ -135,14 +152,23 @@ public class AnvilGUI {
 
 		if(itemText != null) {
 			if(insert == null) {
-				this.insert = new ItemStack(Material.PAPER);
+				this.insert = new ItemStack(Material.FLINT_AND_STEEL); // can be repaired but has no special info in the tooltip
 			}
-
 			ItemMeta paperMeta = this.insert.getItemMeta();
 			paperMeta.setDisplayName(itemText);
 			this.insert.setItemMeta(paperMeta);
 		}
 
+		this.rightItemLabel = rightItemLabel;
+		this.rightItemListener = rightItemListener;
+		if (this.rightItemListener != null) {
+			this.rightItem = new ItemStack(Material.FLINT_AND_STEEL);
+			ItemMeta meta = this.rightItem.getItemMeta();
+			meta.setDisplayName(rightItemLabel);
+			this.rightItem.setItemMeta(meta);
+			this.insert.setDurability((short)125);
+			this.rightItem.setDurability((short)125);
+		}
 		openInventory();
 	}
 
@@ -159,7 +185,9 @@ public class AnvilGUI {
 
 		inventory = WRAPPER.toBukkitInventory(container);
 		inventory.setItem(Slot.INPUT_LEFT, this.insert);
-
+		if (this.rightItem != null) {
+		  inventory.setItem(Slot.INPUT_RIGHT, this.rightItem);
+		}
 		containerId = WRAPPER.getNextContainerId(player, container);
 		WRAPPER.sendPacketOpenWindow(player, containerId, inventoryTitle);
 		WRAPPER.setActiveContainer(player, container);
@@ -227,6 +255,11 @@ public class AnvilGUI {
 						closeInventory();
 					}
 				}
+				else if (event.getRawSlot() == Slot.INPUT_RIGHT && rightItemListener != null) {
+					if (rightItemListener.apply(player)) {
+						closeInventory();
+					}
+				}
 			}
 		}
 
@@ -264,6 +297,10 @@ public class AnvilGUI {
 		 */
 		private Consumer<Player> closeListener;
 		/**
+		 * An {@link Consumer} that is called when the item in the right slot is clicked
+		 */
+		private Function<Player, Boolean> rightItemListener;
+		/**
 		 * A state that decides where the anvil GUI is able to be closed by the user
 		 */
 		private boolean preventClose = false;
@@ -279,6 +316,10 @@ public class AnvilGUI {
 		 * The text that will be displayed to the user
 		 */
 		private String title = "Repair & Name";
+		/**
+		 * The name for the right item, if present
+		 */
+		private String rightItemLabel = "";
 		/**
 		 * The starting text on the item
 		 */
@@ -306,6 +347,22 @@ public class AnvilGUI {
 		public Builder onClose(Consumer<Player> closeListener) {
 			Validate.notNull(closeListener, "closeListener cannot be null");
 			this.closeListener = closeListener;
+			return this;
+		}
+
+		/**
+		 * Listens for when the item in the right input slot is clicked.
+		 * This item is only added if a Listener is added.
+		 * @param label the label/name for the item in the right input slot.
+		 * @param rightItemListener An {@link Consumer} that is called when the right input slot is clicked
+		 * @return The {@link Builder} instance
+		 * @throws IllegalArgumentException when the label or the handler is null
+		 */
+		public Builder onRightItem(String label, Function<Player, Boolean> rightItemListener) {
+			Validate.notNull(label, "label cannot be null");
+			Validate.notNull(rightItemListener, "rightItemListener cannot be null");
+			this.rightItemLabel = label;
+			this.rightItemListener = rightItemListener;
 			return this;
 		}
 
@@ -379,7 +436,8 @@ public class AnvilGUI {
 			Validate.notNull(plugin, "Plugin cannot be null");
 			Validate.notNull(completeFunction, "Complete function cannot be null");
 			Validate.notNull(player, "Player cannot be null");
-			return new AnvilGUI(plugin, player, title, itemText, item, preventClose, closeListener, completeFunction);
+			return new AnvilGUI(plugin, player, title, itemText, item, preventClose, closeListener, completeFunction,
+								rightItemLabel, rightItemListener);
 		}
 
 	}
